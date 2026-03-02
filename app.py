@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 from keras.models import load_model 
 import streamlit as st
-model = load_model(r"C:\Users\hi\Desktop\STOCK\Stock Predictions Model.keras")
+model = load_model("Stock Predictions Model.keras")
 
 st.header('STOCK MARKET PREDICTOR') 
 stock=st.text_input('Enter Stock Symbol','GOOG')
@@ -30,4 +30,5 @@ for i in range(100,data_test_scaler.shape[0]):
     x.append(data_test_scaler[i-100:i])
     y.append(data_test_scaler[i,0])
 x,y=np.array(x),np.array(y)
+
 
