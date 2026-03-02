@@ -1,3 +1,5 @@
+import sys
+print(sys.executable)
 import numpy as np
 import pandas as pd 
 import matplotlib.pyplot as plt 
@@ -30,6 +32,7 @@ for i in range(100,data_test_scaler.shape[0]):
     x.append(data_test_scaler[i-100:i])
     y.append(data_test_scaler[i,0])
 x,y=np.array(x),np.array(y)
+
 
 
 
