@@ -32,3 +32,4 @@ for i in range(100,data_test_scaler.shape[0]):
 x,y=np.array(x),np.array(y)
 
 
+
