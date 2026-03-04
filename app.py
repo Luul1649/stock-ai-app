@@ -4,6 +4,7 @@ import yfinance as yf
 from keras.models import load_model
 import streamlit as st
 import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 model = load_model("Stock Predictions Model.keras")
 
@@ -64,12 +65,18 @@ for i in range(100, data_test_scale.shape[0]):
 x,y = np.array(x), np.array(y)
 
 predict = model.predict(x)
-
+y_true = y   # actual values
+y_pred = predict  # model predictions
 scale = 1/scaler.scale_
 
 predict = predict * scale
 y = y * scale
-
+rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+print("RMSE:", rmse)
+mae = mean_absolute_error(y_true, y_pred)
+print("MAE:", mae)
+r2 = r2_score(y_true, y_pred)
+print("R2 Score:", r2)
 st.subheader('Original Price vs Predicted Price')
 fig4 = plt.figure(figsize=(8,6))
 plt.plot(predict, 'r', label='Original Price')
@@ -79,4 +86,5 @@ plt.ylabel('Price')
 plt.show()
 
 st.pyplot(fig4)
+
 
