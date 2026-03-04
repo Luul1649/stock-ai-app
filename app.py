@@ -39,7 +39,7 @@ scaler.fit(data_train)
 data_test_scaler = scaler.transform(data_test)
 st.header('MA50')
 ma_50_days=data.Close.rolling(50).mean()
-fig1=plt.figsize=(10,8))
+fig1=plt.figure(figsize=(10,8))
 plt.plot(ma_50_days,'r')
 plt.plot(data.Close,'g')
 plt.show()
@@ -56,6 +56,7 @@ predict=model.predict(x)
 scale=1/scaler.scale
 predict=predict*scale
 y=y*scale
+
 
 
 
