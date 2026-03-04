@@ -46,7 +46,7 @@ plt.show()
 st.pyplot(fig1)
 st.header('Price vs MA50 vs MA100')
 ma_100_days=data.Close.rolling(100).mean()
-fig1=plt.figure(figsize=(10,8))
+fig2=plt.figure(figsize=(10,8))
 plt.plot(ma_50_days,'r')
 plt.plot(ma_100_days,'r')
 plt.plot(data.Close,'g')
@@ -64,6 +64,7 @@ predict=model.predict(x)
 scale=1/scaler.scale_
 predict=predict*scale
 y=y*scale
+
 
 
 
