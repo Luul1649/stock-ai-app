@@ -72,6 +72,17 @@ scale=1/scaler.scale_
 predict=predict*scale
 y=y*scale
 
+st.header('Original Price vs Predicted Price')
+ma_50_days=data.Close.rolling(50).mean()
+fig4=plt.figure(figsize=(8,6))
+plt.plot(predict,'r',label='Original Price')
+plt.plot('y','g',label='Predicted Price')
+plt.xlabel('Time')
+plt.ylabel('Price')
+
+plt.show()
+st.pyplot(fig4)
+
 
 
 
