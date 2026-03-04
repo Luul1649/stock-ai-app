@@ -13,7 +13,7 @@ model = load_model("Stock Predictions Model.keras")
 st.header('STOCK MARKET PREDICTOR') 
 stock=st.text_input('Enter Stock Symbol','GOOG')
 start='2012-01-01'
-end='2026-01-01'
+end='2022-01-01'
 
 
 data=yf.download(stock,start,end) 
@@ -82,6 +82,7 @@ plt.ylabel('Price')
 
 plt.show()
 st.pyplot(fig4)
+
 
 
 
