@@ -17,7 +17,7 @@ end='2026-01-01'
 
 
 data=yf.download(stock,start,end) 
-st.subheader('Raw Data')
+st.subheader('Stock Data')
 st.write(data)
 data_train=pd.DataFrame(data.Close[0:int(len(data)*0.80)])
 data_test=pd.DataFrame(data.Close[int(len(data)*0.80):len(data)]) 
@@ -37,6 +37,13 @@ scaler.fit(data_train)
 
 # Transform test data
 data_test_scaler = scaler.transform(data_test)
+st.header('MA50')
+ma_50_days=data.Close.rolling(50).mean()
+fig1=plt.figsize=(10,8))
+plt.plot(ma_50_days,'r')
+plt.plot(data.Close,'g')
+plt.show()
+st.plot(fig1)
 
 x=[]
 y=[]
@@ -44,6 +51,11 @@ for i in range(100,data_test_scaler.shape[0]):
     x.append(data_test_scaler[i-100:i])
     y.append(data_test_scaler[i,0])
 x,y=np.array(x),np.array(y)
+
+predict=model.predict(x)
+scale=1/scaler.scale
+predict=predict*scale
+y=y*scale
 
 
 
