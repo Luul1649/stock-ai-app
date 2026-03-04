@@ -43,7 +43,7 @@ fig1=plt.figure(figsize=(10,8))
 plt.plot(ma_50_days,'r')
 plt.plot(data.Close,'g')
 plt.show()
-st.plot(fig1)
+st.pyplot(fig1)
 
 x=[]
 y=[]
@@ -56,6 +56,7 @@ predict=model.predict(x)
 scale=1/scaler.scale
 predict=predict*scale
 y=y*scale
+
 
 
 
