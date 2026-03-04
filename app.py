@@ -53,9 +53,10 @@ for i in range(100,data_test_scaler.shape[0]):
 x,y=np.array(x),np.array(y)
 
 predict=model.predict(x)
-scale=1/scaler.scale
+scale=1/scaler.scale_
 predict=predict*scale
 y=y*scale
+
 
 
 
