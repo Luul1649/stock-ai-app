@@ -33,7 +33,7 @@ min_volume = st.sidebar.number_input("Min Volume", 0)
 # -------------------------------
 @st.cache_resource
 def load_model_scaler():
-    model = load_model("lstm_model.h5")
+    model = load_model("lstm_model_cleaned.h5")
     scaler = pickle.load(open("scaler.pkl","rb"))
     return model, scaler
 
@@ -146,3 +146,4 @@ plt.ylabel("Price")
 plt.title(f"{ticker} 5-Day Forecast with Political Sentiment")
 plt.legend()
 st.pyplot(plt)
+
