@@ -202,7 +202,7 @@ st.line_chart(future_df)
 
 st.subheader("📰 Political & Market Sentiment")
 
-newsapi = NewsApiClient(api_key="YOUR_NEWSAPI_KEY")
+newsapi = NewsApiClient(api_key="428e0e12db8c48ffbb72b6efa59d632f")
 
 news = newsapi.get_everything(
     q=stocks[0],
@@ -210,7 +210,9 @@ news = newsapi.get_everything(
     sort_by="publishedAt",
     page_size=10
 )
-
+if news['totalResults'] == 0:
+        st.warning("No recent news found for this stock.")
+    else:
 sentiments = []
 
 for article in news["articles"]:
@@ -237,5 +239,6 @@ elif avg_sentiment < -0.1:
 
 else:
     st.warning("Market Sentiment Neutral ⚖️")
+
 
 
