@@ -200,45 +200,41 @@ st.line_chart(future_df)
 # NEWS SENTIMENT ANALYSIS
 # --------------------------------------------------
 
+
 st.subheader("📰 Political & Market Sentiment")
 
-newsapi = NewsApiClient(api_key="428e0e12db8c48ffbb72b6efa59d632f")
+try:
+    newsapi = NewsApiClient(api_key="428e0e12db8c48ffbb72b6efa59d632f")
 
-news = newsapi.get_everything(
-    q=stocks[0],
-    language="en",
-    sort_by="publishedAt",
-    page_size=10
-)
-if news['totalResults'] == 0:
+    news = newsapi.get_everything(
+        q=stocks[0],
+        language="en",
+        sort_by="publishedAt",
+        page_size=10
+    )
+
+    if news['totalResults'] == 0:
         st.warning("No recent news found for this stock.")
     else:
-sentiments = []
+        sentiments = []
 
-for article in news["articles"]:
+        for article in news["articles"]:
+            title = article["title"]
+            analysis = TextBlob(title)
+            sentiment = analysis.sentiment.polarity
+            sentiments.append(sentiment)
+            st.write("📰", title)
 
-    title = article["title"]
+        avg_sentiment = np.mean(sentiments)
+        st.write("Average Sentiment Score:", round(avg_sentiment,3))
 
-    analysis = TextBlob(title)
+        if avg_sentiment > 0.1:
+            st.success("Market Sentiment Positive 📈")
+        elif avg_sentiment < -0.1:
+            st.error("Market Sentiment Negative 📉")
+        else:
+            st.warning("Market Sentiment Neutral ⚖️")
 
-    sentiment = analysis.sentiment.polarity
-
-    sentiments.append(sentiment)
-
-    st.write("📰", title)
-
-avg_sentiment = np.mean(sentiments)
-
-st.write("Average Sentiment Score:", round(avg_sentiment,3))
-
-if avg_sentiment > 0.1:
-    st.success("Market Sentiment Positive 📈")
-
-elif avg_sentiment < -0.1:
-    st.error("Market Sentiment Negative 📉")
-
-else:
-    st.warning("Market Sentiment Neutral ⚖️")
 
 
 
