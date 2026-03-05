@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 import datetime
 
 st.set_page_config(page_title="Real-Time Stock & Political Sentiment", layout="wide")
-st.title("📈 Real-Time Stock Price & Political Sentiment Analyzer")
+st.title(" Real-Time Stock Price & Political Sentiment Analyzer")
 
 # -------------------------------
 # Sidebar Inputs
@@ -119,3 +119,4 @@ if st.button("Analyze Real-Time Data"):
     ax1.legend(loc="upper left")
     ax2.legend(loc="upper right")
     st.pyplot(fig)
+
