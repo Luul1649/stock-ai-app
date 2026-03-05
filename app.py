@@ -34,15 +34,6 @@ st.write(data)
 min_price = st.number_input("Min Close Price", value=0)
 max_price = st.number_input("Max Close Price", value=10000)
 
-filtered_data = data[(data['Close'] >= min_price) & (data['Close'] <= max_price)]
-st.dataframe(filtered_data)
-data['SMA_20'] = data['Close'].rolling(window=20).mean()
-sma_filter = st.slider("Show data where Close > SMA_20", 0, 1, 1)
-
-if sma_filter:
-    filtered_data = data[data['Close'] > data['SMA_20']]
-    st.line_chart(filtered_data['Close'])
-
 data_train = pd.DataFrame(data.Close[0: int(len(data)*0.80)])
 data_test = pd.DataFrame(data.Close[int(len(data)*0.80): len(data)])
 
@@ -112,6 +103,7 @@ plt.ylabel('Price')
 plt.show()
 
 st.pyplot(fig4)
+
 
 
 
