@@ -10,6 +10,7 @@ requests
 TextBlob
 streamlit_autorefresh 
  datetime
+plotly
 
 
 
