@@ -4,13 +4,15 @@ import numpy as np
 import yfinance as yf
 import pickle
 from tensorflow.keras.models import load_model
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-st.title("📈 Stock Price Prediction using LSTM")
+st.set_page_config(page_title="Stock AI Predictor", layout="wide")
 
-# -----------------------------
+st.title("📊 LSTM Stock Price Prediction Dashboard")
+
+# ------------------------------------
 # Load Model and Scaler
-# -----------------------------
+# ------------------------------------
 @st.cache_resource
 def load_model_scaler():
     model = load_model("lstm_model_cleaned.h5")
@@ -19,45 +21,88 @@ def load_model_scaler():
 
 model, scaler = load_model_scaler()
 
-# -----------------------------
-# User Input
-# -----------------------------
-stock = st.text_input("Enter Stock Symbol", "GOOG")
+# ------------------------------------
+# Sidebar Inputs
+# ------------------------------------
+st.sidebar.header("User Input")
 
-start = "2015-01-01"
-end = "2024-12-31"
+stocks = st.sidebar.multiselect(
+    "Select Stocks",
+    ["GOOG","AAPL","TSLA","AMZN","MSFT"],
+    default=["GOOG"]
+)
 
-# -----------------------------
-# Download Stock Data
-# -----------------------------
-data = yf.download(stock, start, end)
+start = st.sidebar.date_input("Start Date", pd.to_datetime("2015-01-01"))
+end = st.sidebar.date_input("End Date", pd.to_datetime("2024-12-31"))
 
-st.subheader("Stock Data")
-st.write(data.tail())
+future_days = st.sidebar.slider("Future Prediction Days", 7, 90, 30)
 
-# -----------------------------
-# Closing Price Chart
-# -----------------------------
-st.subheader("Closing Price Chart")
-st.line_chart(data['Close'])
+# ------------------------------------
+# Download Data
+# ------------------------------------
+data = yf.download(stocks, start=start, end=end)
 
-# -----------------------------
-# Prepare Data
-# -----------------------------
+if len(stocks) == 1:
+    data = data
+
+else:
+    data = data["Close"]
+
+# ------------------------------------
+# Stock Comparison
+# ------------------------------------
+st.subheader("📊 Stock Comparison")
+
+if len(stocks) > 1:
+    st.line_chart(data)
+else:
+    st.line_chart(data['Close'])
+
+# ------------------------------------
+# Candlestick Chart
+# ------------------------------------
+st.subheader("🕯 Candlestick Chart")
+
+if len(stocks) == 1:
+
+    import plotly.graph_objects as go
+
+    fig = go.Figure(data=[go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close']
+    )])
+
+    st.plotly_chart(fig)
+
+# ------------------------------------
+# Volatility Analysis
+# ------------------------------------
+st.subheader("📉 Volatility Analysis")
+
+returns = data['Close'].pct_change()
+
+volatility = returns.std() * np.sqrt(252)
+
+st.write("Annual Volatility:", volatility)
+
+st.line_chart(returns)
+
+# ------------------------------------
+# LSTM Prediction
+# ------------------------------------
 timesteps = 100
-future_days = 30
 
 if len(data) < timesteps:
-    st.error("Not enough data for prediction (need at least 100 records)")
+    st.error("Not enough data for prediction")
     st.stop()
 
 close_data = data[['Close']]
 
 scaled_data = scaler.transform(close_data)
 
-# -----------------------------
-# Prepare Test Data
-# -----------------------------
 x_test = []
 y_test = []
 
@@ -65,33 +110,44 @@ for i in range(timesteps, scaled_data.shape[0]):
     x_test.append(scaled_data[i-timesteps:i])
     y_test.append(scaled_data[i,0])
 
-x_test, y_test = np.array(x_test), np.array(y_test)
+x_test = np.array(x_test)
+y_test = np.array(y_test)
 
-# -----------------------------
-# Model Prediction
-# -----------------------------
 predictions = model.predict(x_test)
 
 predicted_prices = scaler.inverse_transform(predictions)
 
 real_prices = scaler.inverse_transform(y_test.reshape(-1,1))
 
-# -----------------------------
+# ------------------------------------
+# Evaluation Metrics
+# ------------------------------------
+st.subheader("📊 Model Performance")
+
+rmse = np.sqrt(mean_squared_error(real_prices, predicted_prices))
+mae = mean_absolute_error(real_prices, predicted_prices)
+
+col1, col2 = st.columns(2)
+
+col1.metric("RMSE", round(rmse,2))
+col2.metric("MAE", round(mae,2))
+
+# ------------------------------------
 # Actual vs Predicted
-# -----------------------------
-st.subheader("Actual vs Predicted Prices")
+# ------------------------------------
+st.subheader("📈 Actual vs Predicted Prices")
 
 result = pd.DataFrame({
-    "Actual Price": real_prices.flatten(),
-    "Predicted Price": predicted_prices.flatten()
+    "Actual": real_prices.flatten(),
+    "Predicted": predicted_prices.flatten()
 })
 
 st.line_chart(result)
 
-# -----------------------------
+# ------------------------------------
 # Future Prediction
-# -----------------------------
-st.subheader("Next 30 Days Prediction")
+# ------------------------------------
+st.subheader(f"🔮 Next {future_days} Days Prediction")
 
 last_days = close_data.tail(timesteps).values
 
@@ -116,9 +172,6 @@ for i in range(future_days):
 
     input_seq = np.append(input_seq[1:], pred_price, axis=0)
 
-# -----------------------------
-# Create Future Dates
-# -----------------------------
 last_date = data.index[-1]
 
 future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=future_days)
