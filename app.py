@@ -46,13 +46,13 @@ future_days = st.sidebar.slider("Future Prediction Days", 7, 90, 30)
 # DOWNLOAD STOCK DATA
 # --------------------------------------------------
 
-data = yf.download(stocks, start=start, end=end)
+data = yf.download(stock, start=start, end=end)
 
-if len(stocks) > 1:
-    close_prices = data["Close"]
-else:
-    close_prices = data[["Close"]]
+# Use Close column as DataFrame
+close_prices = pd.DataFrame(data['Close'])
+close_prices.columns = ['Close']  # rename column to 'Close' for consistency
 
+st.line_chart(close_prices)
 # --------------------------------------------------
 # STOCK PRICE VISUALIZATION
 # --------------------------------------------------
@@ -237,3 +237,4 @@ elif avg_sentiment < -0.1:
 
 else:
     st.warning("Market Sentiment Neutral ⚖️")
+
