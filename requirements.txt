@@ -11,6 +11,8 @@ TextBlob
 streamlit_autorefresh 
  datetime
 plotly
+newsapi-python
+
 
 
 
