@@ -120,3 +120,4 @@ if st.button("Analyze Real-Time Data"):
     ax2.legend(loc="upper right")
     st.pyplot(fig)
 
+
