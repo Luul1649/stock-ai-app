@@ -6,5 +6,10 @@ numpy
 scikit-learn
 matplotlib
 multitasking
+requests
+TextBlob
+streamlit_autorefresh 
+ datetime
+
 
 
