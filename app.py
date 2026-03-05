@@ -45,7 +45,7 @@ future_days = st.sidebar.slider("Future Prediction Days", 7, 90, 30)
 # --------------------------------------------------
 # DOWNLOAD STOCK DATA
 # --------------------------------------------------
-
+stock = st.text_input("Enter Stock Symbol", "GOOG")
 data = yf.download(stock, start=start, end=end)
 
 # Use Close column as DataFrame
@@ -237,4 +237,5 @@ elif avg_sentiment < -0.1:
 
 else:
     st.warning("Market Sentiment Neutral ⚖️")
+
 
