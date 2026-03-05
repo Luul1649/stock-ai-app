@@ -5,14 +5,18 @@ import yfinance as yf
 import pickle
 from tensorflow.keras.models import load_model
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+import plotly.graph_objects as go
+from newsapi import NewsApiClient
+from textblob import TextBlob
 
-st.set_page_config(page_title="Stock AI Predictor", layout="wide")
+st.set_page_config(page_title="AI Stock Predictor", layout="wide")
 
-st.title("📊 LSTM Stock Price Prediction Dashboard")
+st.title("📈 AI Stock Price Prediction & Market Sentiment Dashboard")
 
-# ------------------------------------
-# Load Model and Scaler
-# ------------------------------------
+# --------------------------------------------------
+# LOAD MODEL AND SCALER
+# --------------------------------------------------
+
 @st.cache_resource
 def load_model_scaler():
     model = load_model("lstm_model_cleaned.h5")
@@ -21,10 +25,11 @@ def load_model_scaler():
 
 model, scaler = load_model_scaler()
 
-# ------------------------------------
-# Sidebar Inputs
-# ------------------------------------
-st.sidebar.header("User Input")
+# --------------------------------------------------
+# SIDEBAR INPUTS
+# --------------------------------------------------
+
+st.sidebar.header("Stock Settings")
 
 stocks = st.sidebar.multiselect(
     "Select Stocks",
@@ -33,39 +38,36 @@ stocks = st.sidebar.multiselect(
 )
 
 start = st.sidebar.date_input("Start Date", pd.to_datetime("2015-01-01"))
-end = st.sidebar.date_input("End Date", pd.to_datetime("2024-12-31"))
+end = st.sidebar.date_input("End Date", pd.to_datetime("2025-01-01"))
 
 future_days = st.sidebar.slider("Future Prediction Days", 7, 90, 30)
 
-# ------------------------------------
-# Download Data
-# ------------------------------------
+# --------------------------------------------------
+# DOWNLOAD STOCK DATA
+# --------------------------------------------------
+
 data = yf.download(stocks, start=start, end=end)
 
-if len(stocks) == 1:
-    data = data
-
-else:
-    data = data["Close"]
-
-# ------------------------------------
-# Stock Comparison
-# ------------------------------------
-st.subheader("📊 Stock Comparison")
-
 if len(stocks) > 1:
-    st.line_chart(data)
+    close_prices = data["Close"]
 else:
-    st.line_chart(data['Close'])
+    close_prices = data[["Close"]]
 
-# ------------------------------------
-# Candlestick Chart
-# ------------------------------------
-st.subheader("🕯 Candlestick Chart")
+# --------------------------------------------------
+# STOCK PRICE VISUALIZATION
+# --------------------------------------------------
+
+st.subheader("📊 Stock Price Trend")
+
+st.line_chart(close_prices)
+
+# --------------------------------------------------
+# CANDLESTICK CHART
+# --------------------------------------------------
 
 if len(stocks) == 1:
 
-    import plotly.graph_objects as go
+    st.subheader("🕯 Candlestick Chart")
 
     fig = go.Figure(data=[go.Candlestick(
         x=data.index,
@@ -77,29 +79,35 @@ if len(stocks) == 1:
 
     st.plotly_chart(fig)
 
-# ------------------------------------
-# Volatility Analysis
-# ------------------------------------
+# --------------------------------------------------
+# VOLATILITY ANALYSIS
+# --------------------------------------------------
+
 st.subheader("📉 Volatility Analysis")
 
-returns = data['Close'].pct_change()
+returns = close_prices.pct_change()
 
 volatility = returns.std() * np.sqrt(252)
 
-st.write("Annual Volatility:", volatility)
+st.write("Annual Volatility")
+
+st.write(volatility)
 
 st.line_chart(returns)
 
-# ------------------------------------
-# LSTM Prediction
-# ------------------------------------
+# --------------------------------------------------
+# LSTM MODEL PREDICTION
+# --------------------------------------------------
+
+st.subheader("🤖 AI Model Prediction")
+
 timesteps = 100
 
-if len(data) < timesteps:
-    st.error("Not enough data for prediction")
-    st.stop()
+close_data = close_prices
 
-close_data = data[['Close']]
+if len(close_data) < timesteps:
+    st.error("Not enough data for prediction (need at least 100 rows)")
+    st.stop()
 
 scaled_data = scaler.transform(close_data)
 
@@ -119,9 +127,10 @@ predicted_prices = scaler.inverse_transform(predictions)
 
 real_prices = scaler.inverse_transform(y_test.reshape(-1,1))
 
-# ------------------------------------
-# Evaluation Metrics
-# ------------------------------------
+# --------------------------------------------------
+# MODEL EVALUATION
+# --------------------------------------------------
+
 st.subheader("📊 Model Performance")
 
 rmse = np.sqrt(mean_squared_error(real_prices, predicted_prices))
@@ -132,10 +141,11 @@ col1, col2 = st.columns(2)
 col1.metric("RMSE", round(rmse,2))
 col2.metric("MAE", round(mae,2))
 
-# ------------------------------------
-# Actual vs Predicted
-# ------------------------------------
-st.subheader("📈 Actual vs Predicted Prices")
+# --------------------------------------------------
+# ACTUAL VS PREDICTED
+# --------------------------------------------------
+
+st.subheader("Actual vs Predicted Prices")
 
 result = pd.DataFrame({
     "Actual": real_prices.flatten(),
@@ -144,10 +154,11 @@ result = pd.DataFrame({
 
 st.line_chart(result)
 
-# ------------------------------------
-# Future Prediction
-# ------------------------------------
-st.subheader(f"🔮 Next {future_days} Days Prediction")
+# --------------------------------------------------
+# FUTURE PREDICTION
+# --------------------------------------------------
+
+st.subheader("🔮 Future Stock Price Prediction")
 
 last_days = close_data.tail(timesteps).values
 
@@ -172,7 +183,7 @@ for i in range(future_days):
 
     input_seq = np.append(input_seq[1:], pred_price, axis=0)
 
-last_date = data.index[-1]
+last_date = close_data.index[-1]
 
 future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=future_days)
 
@@ -184,3 +195,45 @@ future_df = pd.DataFrame({
 future_df.set_index("Date", inplace=True)
 
 st.line_chart(future_df)
+
+# --------------------------------------------------
+# NEWS SENTIMENT ANALYSIS
+# --------------------------------------------------
+
+st.subheader("📰 Political & Market Sentiment")
+
+newsapi = NewsApiClient(api_key="YOUR_NEWSAPI_KEY")
+
+news = newsapi.get_everything(
+    q=stocks[0],
+    language="en",
+    sort_by="publishedAt",
+    page_size=10
+)
+
+sentiments = []
+
+for article in news["articles"]:
+
+    title = article["title"]
+
+    analysis = TextBlob(title)
+
+    sentiment = analysis.sentiment.polarity
+
+    sentiments.append(sentiment)
+
+    st.write("📰", title)
+
+avg_sentiment = np.mean(sentiments)
+
+st.write("Average Sentiment Score:", round(avg_sentiment,3))
+
+if avg_sentiment > 0.1:
+    st.success("Market Sentiment Positive 📈")
+
+elif avg_sentiment < -0.1:
+    st.error("Market Sentiment Negative 📉")
+
+else:
+    st.warning("Market Sentiment Neutral ⚖️")
