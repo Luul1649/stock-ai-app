@@ -21,7 +21,7 @@ stock = st.text_input("Enter Stock Symbol", "AAPL")
 # ------------------------------
 # Load Model
 # ------------------------------
-model = load_model("lstm_model.h5")
+model = load_model("lstm_model_cleaned.h5")
 
 # ------------------------------
 # Load Scaler
@@ -133,3 +133,4 @@ for article in articles['articles']:
     st.markdown(f"[Read More]({article['url']})")
     
     st.write("---")
+
