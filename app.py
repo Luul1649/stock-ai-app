@@ -103,7 +103,7 @@ next_price = scaler.inverse_transform(next_price)
 
 st.subheader("Predicted Next Day Price")
 
-st.success(f"${float(next_price):.2f}")
+st.success(f"${next_price[0][0]:.2f}")
 
 # ------------------------------
 # Financial News Section
@@ -133,4 +133,5 @@ for article in articles['articles']:
     st.markdown(f"[Read More]({article['url']})")
     
     st.write("---")
+
 
