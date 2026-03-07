@@ -1,240 +1,135 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
 import yfinance as yf
 import pickle
+import requests
 from tensorflow.keras.models import load_model
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 from newsapi import NewsApiClient
-from textblob import TextBlob
 
-st.set_page_config(page_title="AI Stock Predictor", layout="wide")
+# ------------------------------
+# Page Title
+# ------------------------------
+st.title("AI Stock Price Predictor with LSTM + Financial News")
 
-st.title("📈 AI Stock Price Prediction & Market Sentiment Dashboard")
+# ------------------------------
+# User Input
+# ------------------------------
+stock = st.text_input("Enter Stock Symbol", "AAPL")
 
-# --------------------------------------------------
-# LOAD MODEL AND SCALER
-# --------------------------------------------------
+# ------------------------------
+# Load Model
+# ------------------------------
+model = load_model("lstm_model.h5")
 
-@st.cache_resource
-def load_model_scaler():
-    model = load_model("lstm_model_cleaned.h5")
-    scaler = pickle.load(open("scaler.pkl","rb"))
-    return model, scaler
+# ------------------------------
+# Load Scaler
+# ------------------------------
+with open("scaler.pkl", "rb") as f:
+    scaler = pickle.load(f)
 
-model, scaler = load_model_scaler()
+# ------------------------------
+# Download Stock Data
+# ------------------------------
+data = yf.download(stock, start="2015-01-01")
 
-# --------------------------------------------------
-# SIDEBAR INPUTS
-# --------------------------------------------------
+st.subheader("Recent Stock Data")
+st.write(data.tail())
 
-st.sidebar.header("Stock Settings")
+# ------------------------------
+# Plot Closing Price
+# ------------------------------
+st.subheader("Closing Price Chart")
 
-stocks = st.sidebar.multiselect(
-    "Select Stocks",
-    ["GOOG","AAPL","TSLA","AMZN","MSFT"],
-    default=["GOOG"]
-)
+fig = plt.figure(figsize=(10,5))
+plt.plot(data['Close'])
+plt.xlabel("Date")
+plt.ylabel("Closing Price")
+plt.title(stock)
 
-start = st.sidebar.date_input("Start Date", pd.to_datetime("2015-01-01"))
-end = st.sidebar.date_input("End Date", pd.to_datetime("2025-01-01"))
+st.pyplot(fig)
 
-future_days = st.sidebar.slider("Future Prediction Days", 7, 90, 30)
+# ------------------------------
+# Prepare Data for LSTM
+# ------------------------------
+close_prices = data['Close'].values.reshape(-1,1)
 
-# --------------------------------------------------
-# DOWNLOAD STOCK DATA
-# --------------------------------------------------
-stock = st.text_input("Enter Stock Symbol", "GOOG")
-data = yf.download(stock, start=start, end=end)
+scaled_data = scaler.transform(close_prices)
 
-# Use Close column as DataFrame
-close_prices = pd.DataFrame(data['Close'])
-close_prices.columns = ['Close']  # rename column to 'Close' for consistency
+sequence_length = 60
 
-st.line_chart(close_prices)
-# --------------------------------------------------
-# STOCK PRICE VISUALIZATION
-# --------------------------------------------------
+X = []
 
-st.subheader("📊 Stock Price Trend")
+for i in range(sequence_length, len(scaled_data)):
+    X.append(scaled_data[i-sequence_length:i,0])
 
-st.line_chart(close_prices)
+X = np.array(X)
+X = np.reshape(X,(X.shape[0],X.shape[1],1))
 
-# --------------------------------------------------
-# CANDLESTICK CHART
-# --------------------------------------------------
+# ------------------------------
+# Predictions
+# ------------------------------
+predicted_prices = model.predict(X)
 
-if len(stocks) == 1:
+predicted_prices = scaler.inverse_transform(predicted_prices)
 
-    st.subheader("🕯 Candlestick Chart")
+train = data[:sequence_length]
+valid = data[sequence_length:].copy()
+valid['Predictions'] = predicted_prices
 
-    fig = go.Figure(data=[go.Candlestick(
-        x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close']
-    )])
-
-    st.plotly_chart(fig)
-
-# --------------------------------------------------
-# VOLATILITY ANALYSIS
-# --------------------------------------------------
-
-st.subheader("📉 Volatility Analysis")
-
-returns = close_prices.pct_change()
-
-volatility = returns.std() * np.sqrt(252)
-
-st.write("Annual Volatility")
-
-st.write(volatility)
-
-st.line_chart(returns)
-
-# --------------------------------------------------
-# LSTM MODEL PREDICTION
-# --------------------------------------------------
-
-st.subheader("🤖 AI Model Prediction")
-
-timesteps = 100
-
-close_data = close_prices
-
-if len(close_data) < timesteps:
-    st.error("Not enough data for prediction (need at least 100 rows)")
-    st.stop()
-
-scaled_data = scaler.transform(close_data)
-
-x_test = []
-y_test = []
-
-for i in range(timesteps, scaled_data.shape[0]):
-    x_test.append(scaled_data[i-timesteps:i])
-    y_test.append(scaled_data[i,0])
-
-x_test = np.array(x_test)
-y_test = np.array(y_test)
-
-predictions = model.predict(x_test)
-
-predicted_prices = scaler.inverse_transform(predictions)
-
-real_prices = scaler.inverse_transform(y_test.reshape(-1,1))
-
-# --------------------------------------------------
-# MODEL EVALUATION
-# --------------------------------------------------
-
-st.subheader("📊 Model Performance")
-
-rmse = np.sqrt(mean_squared_error(real_prices, predicted_prices))
-mae = mean_absolute_error(real_prices, predicted_prices)
-
-col1, col2 = st.columns(2)
-
-col1.metric("RMSE", round(rmse,2))
-col2.metric("MAE", round(mae,2))
-
-# --------------------------------------------------
-# ACTUAL VS PREDICTED
-# --------------------------------------------------
-
+# ------------------------------
+# Plot Predictions
+# ------------------------------
 st.subheader("Actual vs Predicted Prices")
 
-result = pd.DataFrame({
-    "Actual": real_prices.flatten(),
-    "Predicted": predicted_prices.flatten()
-})
+fig2 = plt.figure(figsize=(10,5))
 
-st.line_chart(result)
+plt.plot(train['Close'])
+plt.plot(valid[['Close','Predictions']])
 
-# --------------------------------------------------
-# FUTURE PREDICTION
-# --------------------------------------------------
+plt.legend(['Train','Actual','Predicted'])
 
-st.subheader("🔮 Future Stock Price Prediction")
+st.pyplot(fig2)
 
-last_days = close_data.tail(timesteps).values
+# ------------------------------
+# Next Day Prediction
+# ------------------------------
+last_60 = scaled_data[-60:]
+last_60 = np.reshape(last_60,(1,60,1))
 
-future_predictions = []
+next_price = model.predict(last_60)
+next_price = scaler.inverse_transform(next_price)
 
-input_seq = last_days.copy()
+st.subheader("Predicted Next Day Price")
 
-for i in range(future_days):
+st.success(f"${float(next_price):.2f}")
 
-    scaled = scaler.transform(input_seq)
+# ------------------------------
+# Financial News Section
+# ------------------------------
 
-    X = []
-    X.append(scaled)
+st.subheader("Latest Financial News")
 
-    X = np.array(X)
+NEWS_API_KEY = "428e0e12db8c48ffbb72b6efa59d632f"
 
-    pred = model.predict(X)
+newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
-    pred_price = scaler.inverse_transform(pred)
+articles = newsapi.get_everything(
+    q=stock,
+    language='en',
+    sort_by='publishedAt',
+    page_size=5
+)
 
-    future_predictions.append(pred_price[0][0])
-
-    input_seq = np.append(input_seq[1:], pred_price, axis=0)
-
-last_date = close_data.index[-1]
-
-future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=future_days)
-
-future_df = pd.DataFrame({
-    "Date": future_dates,
-    "Predicted Price": future_predictions
-})
-
-future_df.set_index("Date", inplace=True)
-
-st.line_chart(future_df)
-
-# --------------------------------------------------
-# NEWS SENTIMENT ANALYSIS
-# --------------------------------------------------
-
-
-st.subheader("📰 Political & Market Sentiment")
-
-try:
-    newsapi = NewsApiClient(api_key="428e0e12db8c48ffbb72b6efa59d632f")
-
-    news = newsapi.get_everything(
-        q=stocks[0],
-        language="en",
-        sort_by="publishedAt",
-        page_size=10
-    )
-
-    if news['totalResults'] == 0:
-        st.warning("No recent news found for this stock.")
-    else:
-        sentiments = []
-
-        for article in news["articles"]:
-            title = article["title"]
-            analysis = TextBlob(title)
-            sentiment = analysis.sentiment.polarity
-            sentiments.append(sentiment)
-            st.write("📰", title)
-
-        avg_sentiment = np.mean(sentiments)
-        st.write("Average Sentiment Score:", round(avg_sentiment,3))
-
-        if avg_sentiment > 0.1:
-            st.success("Market Sentiment Positive 📈")
-        elif avg_sentiment < -0.1:
-            st.error("Market Sentiment Negative 📉")
-        else:
-            st.warning("Market Sentiment Neutral ⚖️")
-
-
-
-
+for article in articles['articles']:
+    
+    st.markdown(f"### {article['title']}")
+    
+    st.write(article['description'])
+    
+    st.write("Source:", article['source']['name'])
+    
+    st.markdown(f"[Read More]({article['url']})")
+    
+    st.write("---")
