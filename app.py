@@ -89,22 +89,83 @@ def load_ai_assets():
 # ============================================================
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_stock_data(ticker):
 
+    ticker = ticker.strip().upper()
+
     try:
-
-        ticker = ticker.strip().upper()
-
-        # Use Yahoo Finance through yfinance
+        # Download only once and cache for 10 minutes
         data = yf.download(
-            ticker,
-            period="10y",
+            tickers=ticker,
+            period="5y",
             interval="1d",
             auto_adjust=False,
             progress=False,
-            threads=False
+            threads=False,
+            multi_level_index=False
         )
 
+        if data is None or data.empty:
+            return pd.DataFrame(), (
+                f"Yahoo Finance returned no data for {ticker}. "
+                "Yahoo may be temporarily rate-limiting the app."
+            )
+
+        # Make sure columns are normal strings
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
+
+        required = [
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume"
+        ]
+
+        missing = [
+            column
+            for column in required
+            if column not in data.columns
+        ]
+
+        if missing:
+            return pd.DataFrame(), (
+                f"Yahoo Finance did not return these columns: "
+                f"{missing}"
+            )
+
+        data = data[required].copy()
+
+        for column in required:
+            data[column] = pd.to_numeric(
+                data[column],
+                errors="coerce"
+            )
+
+        data.dropna(
+            subset=["Close"],
+            inplace=True
+        )
+
+        data.sort_index(
+            inplace=True
+        )
+
+        if len(data) < 65:
+            return pd.DataFrame(), (
+                f"Only {len(data)} records were returned. "
+                "At least 65 records are required."
+            )
+
+        return data, None
+
+    except Exception as e:
+
+        return pd.DataFrame(), (
+            f"Yahoo Finance connection failed: {str(e)}"
+        )
         # ----------------------------------------------------
         # CHECK DATA
         # ----------------------------------------------------
