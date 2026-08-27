@@ -10,6 +10,9 @@ from textblob import TextBlob
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import math
 
+# FIX: Import curl_cffi to mask our automated data center requests as real browser traffic
+from curl_cffi import requests as curl_requests
+
 # -----------------------------------
 # PAGE CONFIG
 # -----------------------------------
@@ -25,7 +28,7 @@ refresh = st.sidebar.slider("Auto Refresh (seconds)", 30, 300, 120)
 stock = st.sidebar.text_input("Enter Stock Symbol", "AAPL").strip().upper()
 
 # -----------------------------------
-# CACHED ASSET LOADING (Prevents Log Spam)
+# CACHED ASSET LOADING
 # -----------------------------------
 @st.cache_resource
 def load_ai_assets():
@@ -35,26 +38,31 @@ def load_ai_assets():
         scaler = pickle.load(f)
     return model, scaler
 
-@st.cache_data(ttl=600)  # Cache data for 10 minutes to bypass Yahoo rate limits
-def fetch_stock_data(ticker):
+@st.cache_data(ttl=300)  # Caches data in memory for 5 minutes locally
+def fetch_unlocked_stock_data(ticker):
     """
-    Uses yf.Ticker().history which always returns clean, single-index columns 
-    ('Open', 'High', 'Low', 'Close') and avoids all MultiIndex breaking changes.
+    Creates a secure, spoofed browser session via curl_cffi.
+    Impersonating Chrome completely bypasses Yahoo Finance's 429 automated IP blocks.
     """
     try:
-        ticker_obj = yf.Ticker(ticker)
+        # Create a session that mimics a desktop Chrome browser footprint perfectly
+        session = curl_requests.Session(impersonate="chrome")
+        
+        # Inject the spoofed session right into yfinance
+        ticker_obj = yf.Ticker(ticker, session=session)
         df = ticker_obj.history(start="2015-01-01")
+        
         if df.empty:
             return pd.DataFrame()
         
-        # Strip timezone info from index to avoid plotting/indexing glitches
+        # Format columns and remove timezone complexities
         df.index = df.index.tz_localize(None)
         return df
     except Exception:
         return pd.DataFrame()
 
 # -----------------------------------
-# NATIVE APP FRAGMENT (Auto-refreshes seamlessly)
+# NATIVE APP FRAGMENT
 # -----------------------------------
 @st.fragment(run_every=refresh)
 def run_app():
@@ -65,18 +73,17 @@ def run_app():
         st.error(f"Error loading model or scaler files: {e}")
         return
 
-    # 2. Fetch Data
-    data = fetch_stock_data(stock)
+    # 2. Fetch Unlocked Data
+    data = fetch_unlocked_stock_data(stock)
     
-    # CRITICAL FIX: If Yahoo rate-limits or the ticker is invalid, stop immediately
     if data.empty or len(data) < 65:
         st.error(
-            "⚠️ **Data Fetch Failed.** Yahoo Finance is currently rate-limiting requests from this server, "
-            "or the ticker symbol is invalid. Please wait a few minutes for the rate limit to clear, or try another ticker."
+            f"⚠️ **Data Unavailable.** Could not retrieve clean historical data for '{stock}'. "
+            "Please check the ticker symbol and try again."
         )
         return
 
-    # Clean out any missing rows to protect the scaler
+    # Ensure clean numeric columns for the matrix calculations
     data = data.dropna(subset=["Close"])
 
     st.subheader("Recent Stock Data")
@@ -143,8 +150,6 @@ def run_app():
     # DATA PREPARATION FOR LSTM
     # -----------------------------------
     close_prices = data["Close"].values.reshape(-1, 1)
-    
-    # Safe scaling now that data size is guaranteed > 65
     scaled_data = scaler.transform(close_prices)
 
     sequence_length = 60
@@ -153,8 +158,6 @@ def run_app():
         X.append(scaled_data[i - sequence_length:i, 0])
 
     X = np.array(X)
-    
-    # FIXED: Re-established strict integer dimension slicing for the LSTM shape
     X = np.reshape(X, (X.shape[0], X.shape[1], 1))
 
     # -----------------------------------
@@ -246,5 +249,5 @@ def run_app():
     except Exception as news_err:
         st.error(f"Could not load news articles: {news_err}")
 
-# Run the app structure
+# Execute the application core
 run_app()
