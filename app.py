@@ -77,135 +77,147 @@ def load_ai_assets():
 @st.cache_data(ttl=300)
 def fetch_global_stock_data(ticker):
     """
-    Fetch historical stock data from Yahoo Finance Chart API.
-
-    Returns:
-        DataFrame containing:
-        Open
-        High
-        Low
-        Close
-        Volume
+    Fetch historical daily stock data using Twelve Data API.
     """
 
-    ticker = ticker.strip().upper()
-
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-
-    params = {
-        "range": "10y",
-        "interval": "1d",
-        "events": "history",
-        "includeAdjustedClose": "true"
-    }
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json"
-    }
-
     try:
+        ticker = ticker.strip().upper()
+
+        # Get API key from Streamlit Secrets
+        API_KEY = st.secrets["TWELVE_DATA_API_KEY"]
+
+        url = "https://api.twelvedata.com/time_series"
+
+        params = {
+            "symbol": ticker,
+            "interval": "1day",
+            "outputsize": 5000,
+            "apikey": API_KEY
+        }
 
         response = requests.get(
             url,
             params=params,
-            headers=headers,
-            timeout=20
+            timeout=30
         )
 
-        # Check HTTP response
         response.raise_for_status()
 
-        # Convert response to JSON
-        json_data = response.json()
+        result = response.json()
 
-        # Extract chart information
-        chart = json_data.get("chart", {})
-
-        result = chart.get("result")
-
-        if not result:
+        # Check whether API returned an error
+        if "status" in result and result["status"] == "error":
+            st.error(
+                f"Twelve Data Error: "
+                f"{result.get('message', 'Unknown error')}"
+            )
             return pd.DataFrame()
 
-        root = result[0]
-
-        # Get timestamps
-        timestamps = root.get("timestamp")
-
-        if not timestamps:
+        # Check that values exist
+        if "values" not in result:
+            st.error(
+                f"No historical data returned for {ticker}."
+            )
             return pd.DataFrame()
-
-        # Get quote information
-        quote_list = (
-            root
-            .get("indicators", {})
-            .get("quote", [])
-        )
-
-        if not quote_list:
-            return pd.DataFrame()
-
-        quote = quote_list[0]
 
         # Create DataFrame
-        df = pd.DataFrame({
-            "Open": quote.get("open"),
-            "High": quote.get("high"),
-            "Low": quote.get("low"),
-            "Close": quote.get("close"),
-            "Volume": quote.get("volume")
-        })
+        df = pd.DataFrame(result["values"])
 
-        # Convert timestamps to dates
-        df["Date"] = pd.to_datetime(
-            timestamps,
-            unit="s",
-            utc=True
-        ).dt.tz_localize(None)
+        # --------------------------------------
+        # FIX FOR DATETIMEINDEX ERROR
+        # --------------------------------------
 
-        # Set Date as index
-        df.set_index("Date", inplace=True)
+        df["datetime"] = pd.to_datetime(
+            df["datetime"],
+            errors="coerce"
+        )
 
-        # Remove rows where Close is missing
+        # Remove invalid dates
+        df = df.dropna(
+            subset=["datetime"]
+        )
+
+        # Set datetime as index
+        df.set_index(
+            "datetime",
+            inplace=True
+        )
+
+        # --------------------------------------
+        # RENAME COLUMNS
+        # --------------------------------------
+
+        df.rename(
+            columns={
+                "open": "Open",
+                "high": "High",
+                "low": "Low",
+                "close": "Close",
+                "volume": "Volume"
+            },
+            inplace=True
+        )
+
+        # --------------------------------------
+        # CONVERT NUMERIC COLUMNS
+        # --------------------------------------
+
+        numeric_columns = [
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume"
+        ]
+
+        for column in numeric_columns:
+
+            if column in df.columns:
+
+                df[column] = pd.to_numeric(
+                    df[column],
+                    errors="coerce"
+                )
+
+        # --------------------------------------
+        # REMOVE MISSING CLOSE VALUES
+        # --------------------------------------
+
         df.dropna(
             subset=["Close"],
             inplace=True
         )
 
-        # Sort chronologically
-        df.sort_index(inplace=True)
+        # --------------------------------------
+        # SORT FROM OLDEST TO NEWEST
+        # --------------------------------------
+
+        df.sort_index(
+            ascending=True,
+            inplace=True
+        )
 
         return df
 
-    except requests.exceptions.RequestException as e:
-
+    except KeyError:
         st.error(
-            f"Yahoo Finance connection error: {e}"
+            "❌ TWELVE_DATA_API_KEY is missing "
+            "from Streamlit Secrets."
         )
-
         return pd.DataFrame()
 
-    except ValueError as e:
-
+    except requests.exceptions.RequestException as e:
         st.error(
-            f"Yahoo Finance returned invalid data: {e}"
+            f"❌ Connection error while retrieving "
+            f"stock data: {e}"
         )
-
         return pd.DataFrame()
 
     except Exception as e:
-
         st.error(
-            f"Unexpected data error: {e}"
+            f"❌ Unexpected data error: {e}"
         )
-
         return pd.DataFrame()
-
-
 # ==========================================
 # RSI FUNCTION
 # ==========================================
