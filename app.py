@@ -22,35 +22,46 @@ st.write("LSTM Deep Learning + Global News Sentiment")
 # SIDEBAR CONTROLS
 # -----------------------------------
 refresh = st.sidebar.slider("Auto Refresh (seconds)", 30, 300, 120)
-stock = st.sidebar.text_input("Enter Stock Symbol", "AAPL")
+stock = st.sidebar.text_input("Enter Stock Symbol", "AAPL").strip().upper()
 
-# Native Streamlit fragment to handle auto-refresh without freezing UI input fields
+# -----------------------------------
+# CACHED FUNCTIONS (Prevents Log Spam & Rate Limits)
+# -----------------------------------
+
+@st.cache_resource
+def load_ai_assets():
+    """Loads the heavy LSTM model and scaler once and keeps them in memory."""
+    model = load_model("lstm_model_cleaned.h5")
+    with open("scaler.pkl", "rb") as f:
+        scaler = pickle.load(f)
+    return model, scaler
+
+@st.cache_data(ttl=600)  # Cache data for 10 minutes (600 seconds) to completely avoid Yahoo rate limits
+def fetch_stock_data(ticker):
+    """Downloads stock data and flattens multi-index columns cleanly."""
+    df = yf.download(ticker, start="2015-01-01")
+    if not df.empty and isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(-1)
+    return df
+
+# -----------------------------------
+# NATIVE APP FRAGMENT
+# -----------------------------------
 @st.fragment(run_every=refresh)
 def run_app():
-    # -----------------------------------
-    # LOAD MODEL & SCALER
-    # -----------------------------------
+    # Load assets securely from memory cache
     try:
-        model = load_model("lstm_model_cleaned.h5")
-        with open("scaler.pkl", "rb") as f:
-            scaler = pickle.load(f)
+        model, scaler = load_ai_assets()
     except Exception as e:
         st.error(f"Error loading model or scaler files: {e}")
         return
 
-    # -----------------------------------
-    # DOWNLOAD & CLEAN STOCK DATA
-    # -----------------------------------
-    # yfinance now defaults to MultiIndex columns even for single tickers.
-    # We must explicitly drop the multi-index levels to get clean 'Close', 'Open' columns.
-    data = yf.download(stock, start="2015-01-01")
+    # Fetch data cleanly from memory/cache
+    data = fetch_stock_data(stock)
     
     if data.empty:
-        st.error("No data found for the given stock symbol. Please check the ticker.")
+        st.error("⚠️ Yahoo Finance Rate Limit Active or Invalid Ticker. Please wait a few minutes for the rate limit to reset, or try another ticker.")
         return
-
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(-1)
 
     st.subheader("Recent Stock Data")
     st.dataframe(data.tail())
@@ -121,7 +132,7 @@ def run_app():
 
     sequence_length = 60
     if len(scaled_data) <= sequence_length:
-        st.warning("Not enough data to generate LSTM rolling sequences.")
+        st.warning("Not enough historical data rows to generate LSTM rolling sequences.")
         return
 
     X = []
@@ -179,9 +190,8 @@ def run_app():
     # -----------------------------------
     st.subheader("Global News Affecting Markets")
 
-    # Secure key fallback logic: checks Streamlit Secrets first, falls back to hardcoded string if testing locally
     if "NEWS_API_KEY" in st.secrets:
-        NEWS_API_KEY = st.secrets["NEWS_API_KEY"] [1]
+        NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
     else:
         NEWS_API_KEY = "428e0e12db8c48ffbb72b6efa59d632f"
 
@@ -194,9 +204,6 @@ def run_app():
             page_size=8
         )
 
-        # -----------------------------------
-        # SENTIMENT FUNCTION & DISPLAY
-        # -----------------------------------
         def get_sentiment(text):
             analysis = TextBlob(text)
             polarity = analysis.sentiment.polarity
