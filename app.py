@@ -91,46 +91,53 @@ def load_ai_assets():
 # ============================================================
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def fetch_stock_data(ticker):
 
     try:
+        import yfinance as yf
 
-        # ----------------------------------------------------
-        # GET TWELVE DATA API KEY
-        # ----------------------------------------------------
+        ticker = ticker.strip().upper()
 
-        api_key = st.secrets[
-            "TWELVE_DATA_API_KEY"
+        stock = yf.Ticker(ticker)
+
+        data = stock.history(
+            period="10y",
+            interval="1d",
+            auto_adjust=False
+        )
+
+        if data.empty:
+            return pd.DataFrame()
+
+        data = data[
+            [
+                "Open",
+                "High",
+                "Low",
+                "Close",
+                "Volume"
+            ]
         ]
 
-        # ----------------------------------------------------
-        # TWELVE DATA ENDPOINT
-        # ----------------------------------------------------
-
-        url = (
-            "https://api.twelvedata.com/time_series"
+        data.dropna(
+            subset=["Close"],
+            inplace=True
         )
 
-        params = {
-
-            "symbol": ticker,
-
-            "interval": "1day",
-
-            "outputsize": 5000,
-
-            "apikey": api_key
-        }
-
-        response = requests.get(
-            url,
-            params=params,
-            timeout=30
+        data.sort_index(
+            inplace=True
         )
 
-        response.raise_for_status()
+        return data
 
-        result = response.json()
+    except Exception as e:
+
+        st.error(
+            f"Yahoo Finance error: {e}"
+        )
+
+        return pd.DataFrame()
 
         # ----------------------------------------------------
         # CHECK API RESPONSE
