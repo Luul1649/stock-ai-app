@@ -222,9 +222,10 @@ st.write("MAE:",mae)
 
 st.subheader("Global News Affecting Markets")
 
-NEWS_API_KEY = "428e0e12db8c48ffbb72b6efa59d632f"
+#NEWS_API_KEY = "428e0e12db8c48ffbb72b6efa59d632f"
+NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
 
-newsapi = NewsApiClient(api_key=NEWS_API_KEY)
+#newsapi = NewsApiClient(api_key=NEWS_API_KEY)
 
 articles = newsapi.get_everything(
 
