@@ -89,13 +89,14 @@ def load_ai_assets():
 # ============================================================
 
 @st.cache_data(ttl=300)
+
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_stock_data(ticker):
 
     ticker = ticker.strip().upper()
 
     try:
-        # Download only once and cache for 10 minutes
+
         data = yf.download(
             tickers=ticker,
             period="5y",
@@ -108,11 +109,9 @@ def fetch_stock_data(ticker):
 
         if data is None or data.empty:
             return pd.DataFrame(), (
-                f"Yahoo Finance returned no data for {ticker}. "
-                "Yahoo may be temporarily rate-limiting the app."
+                f"Yahoo Finance returned no data for {ticker}."
             )
 
-        # Make sure columns are normal strings
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
 
@@ -132,8 +131,7 @@ def fetch_stock_data(ticker):
 
         if missing:
             return pd.DataFrame(), (
-                f"Yahoo Finance did not return these columns: "
-                f"{missing}"
+                f"Missing columns: {missing}"
             )
 
         data = data[required].copy()
@@ -155,8 +153,7 @@ def fetch_stock_data(ticker):
 
         if len(data) < 65:
             return pd.DataFrame(), (
-                f"Only {len(data)} records were returned. "
-                "At least 65 records are required."
+                f"Only {len(data)} records were returned."
             )
 
         return data, None
@@ -164,7 +161,7 @@ def fetch_stock_data(ticker):
     except Exception as e:
 
         return pd.DataFrame(), (
-            f"Yahoo Finance connection failed: {str(e)}"
+            f"Yahoo Finance error: {str(e)}"
         )
         # ----------------------------------------------------
         # CHECK DATA
