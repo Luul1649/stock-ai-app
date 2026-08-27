@@ -41,7 +41,6 @@ def fetch_global_stock_data(ticker):
     Fetches raw historical data directly from Yahoo Finance's backend microservice.
     Bypasses yfinance library blocks entirely for ALL tickers.
     """
-    # Period1 = Jan 1 2015 (1420070400), Period2 = Year 2030 target bounds
     url = f"https://yahoo.com{ticker}?period1=1420070400&period2=1924905600&interval=1d"
     
     headers = {
@@ -54,12 +53,10 @@ def fetch_global_stock_data(ticker):
         response = requests.get(url, headers=headers, timeout=15)
         json_data = response.json()
         
-        # Extract the target nested result array safely
         result_list = json_data.get("chart", {}).get("result", [])
         if not result_list or result_list is None:
             return pd.DataFrame()
             
-        # FIX: result_list is a list containing a dictionary. We must unpack index 0.
         root = result_list[0]
         timestamps = root.get("timestamp", [])
         
@@ -67,10 +64,8 @@ def fetch_global_stock_data(ticker):
         if not timestamps or not quote_list:
             return pd.DataFrame()
             
-        # FIX: quote_list is also a list containing one dictionary of price arrays.
         indicators = quote_list[0]
         
-        # Parse data into clean columns
         df = pd.DataFrame({
             "Open": indicators.get("open"),
             "High": indicators.get("high"),
@@ -79,7 +74,6 @@ def fetch_global_stock_data(ticker):
             "Volume": indicators.get("volume")
         }, index=pd.to_datetime(timestamps, unit="s"))
         
-        # Strip timezones and drop missing rows to protect your scaler matrix
         df.index = df.index.tz_localize(None)
         df = df.dropna(subset=["Close"])
         return df
@@ -98,13 +92,13 @@ def run_app():
         st.error(f"Error loading model or scaler files: {e}")
         return
 
-    # 2. Fetch via Direct Backend JSON API Hook
+    # 2. Fetch Data
     data = fetch_global_stock_data(stock)
     
     if data.empty or len(data) < 65:
         st.error(
             f"⚠️ **Data Fetch Failure.** Could not load historical records for '{stock}'. "
-            "Please confirm that the symbol is correct (e.g., AAPL, TSLA, NVDA, BTC-USD) and try again."
+            "Please confirm that the symbol is correct (e.g., AAPL, TSLA, NVDA) and try again."
         )
         return
 
@@ -180,6 +174,8 @@ def run_app():
         X.append(scaled_data[i - sequence_length:i, 0])
 
     X = np.array(X)
+    
+    # CRITICAL FIX: Correct dimensional syntax using exact structural array indices
     X = np.reshape(X, (X.shape[0], X.shape[1], 1))
 
     # -----------------------------------
@@ -271,5 +267,5 @@ def run_app():
     except Exception as news_err:
         st.error(f"Could not load news articles: {news_err}")
 
-# Run application instance
+# Deploy application loop container
 run_app()
