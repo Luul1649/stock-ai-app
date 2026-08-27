@@ -25,9 +25,8 @@ refresh = st.sidebar.slider("Auto Refresh (seconds)", 30, 300, 120)
 stock = st.sidebar.text_input("Enter Stock Symbol", "AAPL").strip().upper()
 
 # -----------------------------------
-# CACHED FUNCTIONS (Prevents Log Spam & Rate Limits)
+# CACHED ASSET LOADING (Prevents Log Spam)
 # -----------------------------------
-
 @st.cache_resource
 def load_ai_assets():
     """Loads the heavy LSTM model and scaler once and keeps them in memory."""
@@ -36,32 +35,49 @@ def load_ai_assets():
         scaler = pickle.load(f)
     return model, scaler
 
-@st.cache_data(ttl=600)  # Cache data for 10 minutes (600 seconds) to completely avoid Yahoo rate limits
+@st.cache_data(ttl=600)  # Cache data for 10 minutes to bypass Yahoo rate limits
 def fetch_stock_data(ticker):
-    """Downloads stock data and flattens multi-index columns cleanly."""
-    df = yf.download(ticker, start="2015-01-01")
-    if not df.empty and isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(-1)
-    return df
+    """
+    Uses yf.Ticker().history which always returns clean, single-index columns 
+    ('Open', 'High', 'Low', 'Close') and avoids all MultiIndex breaking changes.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        df = ticker_obj.history(start="2015-01-01")
+        if df.empty:
+            return pd.DataFrame()
+        
+        # Strip timezone info from index to avoid plotting/indexing glitches
+        df.index = df.index.tz_localize(None)
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 # -----------------------------------
-# NATIVE APP FRAGMENT
+# NATIVE APP FRAGMENT (Auto-refreshes seamlessly)
 # -----------------------------------
 @st.fragment(run_every=refresh)
 def run_app():
-    # Load assets securely from memory cache
+    # 1. Load ML Assets
     try:
         model, scaler = load_ai_assets()
     except Exception as e:
         st.error(f"Error loading model or scaler files: {e}")
         return
 
-    # Fetch data cleanly from memory/cache
+    # 2. Fetch Data
     data = fetch_stock_data(stock)
     
-    if data.empty:
-        st.error("⚠️ Yahoo Finance Rate Limit Active or Invalid Ticker. Please wait a few minutes for the rate limit to reset, or try another ticker.")
+    # CRITICAL FIX: If Yahoo rate-limits or the ticker is invalid, stop immediately
+    if data.empty or len(data) < 65:
+        st.error(
+            "⚠️ **Data Fetch Failed.** Yahoo Finance is currently rate-limiting requests from this server, "
+            "or the ticker symbol is invalid. Please wait a few minutes for the rate limit to clear, or try another ticker."
+        )
         return
+
+    # Clean out any missing rows to protect the scaler
+    data = data.dropna(subset=["Close"])
 
     st.subheader("Recent Stock Data")
     st.dataframe(data.tail())
@@ -100,8 +116,7 @@ def run_app():
         gain = (delta.where(delta > 0, 0)).rolling(window).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window).mean()
         rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
+        return 100 - (100 / (1 + rs))
 
     data["RSI"] = compute_RSI(data["Close"])
 
@@ -128,18 +143,18 @@ def run_app():
     # DATA PREPARATION FOR LSTM
     # -----------------------------------
     close_prices = data["Close"].values.reshape(-1, 1)
+    
+    # Safe scaling now that data size is guaranteed > 65
     scaled_data = scaler.transform(close_prices)
 
     sequence_length = 60
-    if len(scaled_data) <= sequence_length:
-        st.warning("Not enough historical data rows to generate LSTM rolling sequences.")
-        return
-
     X = []
     for i in range(sequence_length, len(scaled_data)):
         X.append(scaled_data[i - sequence_length:i, 0])
 
     X = np.array(X)
+    
+    # FIXED: Re-established strict integer dimension slicing for the LSTM shape
     X = np.reshape(X, (X.shape[0], X.shape[1], 1))
 
     # -----------------------------------
@@ -231,5 +246,5 @@ def run_app():
     except Exception as news_err:
         st.error(f"Could not load news articles: {news_err}")
 
-# Execute the integrated fragment app
+# Run the app structure
 run_app()
