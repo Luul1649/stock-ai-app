@@ -1,7 +1,7 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import yfinance as yf
+import requests
 import pickle
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
@@ -9,9 +9,6 @@ from newsapi import NewsApiClient
 from textblob import TextBlob
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import math
-
-# FIX: Import curl_cffi to mask our automated data center requests as real browser traffic
-from curl_cffi import requests as curl_requests
 
 # -----------------------------------
 # PAGE CONFIG
@@ -38,25 +35,49 @@ def load_ai_assets():
         scaler = pickle.load(f)
     return model, scaler
 
-@st.cache_data(ttl=300)  # Caches data in memory for 5 minutes locally
-def fetch_unlocked_stock_data(ticker):
+@st.cache_data(ttl=300)  # Cache data for 5 minutes locally to save server resources
+def fetch_global_stock_data(ticker):
     """
-    Creates a secure, spoofed browser session via curl_cffi.
-    Impersonating Chrome completely bypasses Yahoo Finance's 429 automated IP blocks.
+    Fetches raw historical data directly from Yahoo Finance's microservice.
+    Works for ALL global stocks, indices, and crypto without yfinance rate limits.
     """
+    # Period1 = Jan 1 2015 (1420070400), Period2 = Year 2030 target bounds
+    url = f"https://yahoo.com{ticker}?period1=1420070400&period2=1924905600&interval=1d"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": "https://yahoo.com"
+    }
+    
     try:
-        # Create a session that mimics a desktop Chrome browser footprint perfectly
-        session = curl_requests.Session(impersonate="chrome")
+        response = requests.get(url, headers=headers, timeout=15)
+        json_data = response.json()
         
-        # Inject the spoofed session right into yfinance
-        ticker_obj = yf.Ticker(ticker, session=session)
-        df = ticker_obj.history(start="2015-01-01")
-        
-        if df.empty:
+        # Extract the target nested result block array safely
+        result_list = json_data.get("chart", {}).get("result", [])
+        if not result_list or result_list is None:
             return pd.DataFrame()
+            
+        root = result_list[0]
+        timestamps = root.get("timestamp", [])
+        indicators = root.get("indicators", {}).get("quote", [])[0]
         
-        # Format columns and remove timezone complexities
+        if not timestamps or not indicators:
+            return pd.DataFrame()
+            
+        # Parse data into clean columns
+        df = pd.DataFrame({
+            "Open": indicators.get("open"),
+            "High": indicators.get("high"),
+            "Low": indicators.get("low"),
+            "Close": indicators.get("close"),
+            "Volume": indicators.get("volume")
+        }, index=pd.to_datetime(timestamps, unit="s"))
+        
+        # Strip timezones and drop missing rows to protect your scaler matrix
         df.index = df.index.tz_localize(None)
+        df = df.dropna(subset=["Close"])
         return df
     except Exception:
         return pd.DataFrame()
@@ -66,25 +87,22 @@ def fetch_unlocked_stock_data(ticker):
 # -----------------------------------
 @st.fragment(run_every=refresh)
 def run_app():
-    # 1. Load ML Assets
+    # 1. Load ML Assets Securely
     try:
         model, scaler = load_ai_assets()
     except Exception as e:
         st.error(f"Error loading model or scaler files: {e}")
         return
 
-    # 2. Fetch Unlocked Data
-    data = fetch_unlocked_stock_data(stock)
+    # 2. Fetch via Direct Web Service API Hook
+    data = fetch_global_stock_data(stock)
     
     if data.empty or len(data) < 65:
         st.error(
-            f"⚠️ **Data Unavailable.** Could not retrieve clean historical data for '{stock}'. "
-            "Please check the ticker symbol and try again."
+            f"⚠️ **Data Fetch Failure.** Could not load historical records for '{stock}'. "
+            "Please confirm that the symbol is correct (e.g., TSLA, BTC-USD, ^GSPC) and reload."
         )
         return
-
-    # Ensure clean numeric columns for the matrix calculations
-    data = data.dropna(subset=["Close"])
 
     st.subheader("Recent Stock Data")
     st.dataframe(data.tail())
@@ -249,5 +267,5 @@ def run_app():
     except Exception as news_err:
         st.error(f"Could not load news articles: {news_err}")
 
-# Execute the application core
+# Fire up application sequence
 run_app()
