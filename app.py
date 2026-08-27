@@ -46,11 +46,15 @@ with open("scaler.pkl","rb") as f:
 # DOWNLOAD STOCK DATA
 # -----------------------------------
 
-data = yf.download(stock,start="2015-01-01")
+data = yf.download(stock, start="2015-01-01")
+
+# FIX: Flatten the multi-index columns down to clean, single strings ('Close', 'Open', etc.)
+if isinstance(data.columns, pd.MultiIndex):
+    data.columns = data.columns.get_level_values(-1)
 
 st.subheader("Recent Stock Data")
-
 st.dataframe(data.tail())
+
 
 # -----------------------------------
 # PRICE CHART
