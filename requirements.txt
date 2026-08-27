@@ -12,7 +12,7 @@ streamlit_autorefresh
  datetime
 plotly
 newsapi-python
-
+curl_cffi
 
 
 
