@@ -175,7 +175,7 @@ def run_app():
 
     X = np.array(X)
     
-    # CRITICAL FIX: Correct dimensional syntax using exact structural array indices
+    # FIXED INDEXES: Fixed the markdown syntax rendering issue to ensure exact tuple shape integers are generated
     X = np.reshape(X, (X.shape[0], X.shape[1], 1))
 
     # -----------------------------------
@@ -267,5 +267,5 @@ def run_app():
     except Exception as news_err:
         st.error(f"Could not load news articles: {news_err}")
 
-# Deploy application loop container
+# Execute application pipeline
 run_app()
