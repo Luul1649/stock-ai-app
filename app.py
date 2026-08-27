@@ -95,37 +95,62 @@ def load_ai_assets():
 def fetch_stock_data(ticker):
 
     try:
-        import yfinance as yf
-
         ticker = ticker.strip().upper()
 
-        stock = yf.Ticker(ticker)
-
-        data = stock.history(
+        data = yf.download(
+            ticker,
             period="10y",
             interval="1d",
-            auto_adjust=False
+            auto_adjust=False,
+            progress=False,
+            threads=False
         )
 
         if data.empty:
             return pd.DataFrame()
 
-        data = data[
-            [
-                "Open",
-                "High",
-                "Low",
-                "Close",
-                "Volume"
-            ]
+        # Handle MultiIndex columns returned by newer yfinance versions
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
+
+        required_columns = [
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume"
         ]
 
+        missing_columns = [
+            col for col in required_columns
+            if col not in data.columns
+        ]
+
+        if missing_columns:
+            st.error(
+                f"Missing columns from Yahoo Finance: "
+                f"{missing_columns}"
+            )
+            return pd.DataFrame()
+
+        data = data[required_columns].copy()
+
+        # Convert values to numeric
+        for column in required_columns:
+            data[column] = pd.to_numeric(
+                data[column],
+                errors="coerce"
+            )
+
+        # Remove missing prices
         data.dropna(
             subset=["Close"],
             inplace=True
         )
 
+        # Sort dates
         data.sort_index(
+            ascending=True,
             inplace=True
         )
 
