@@ -1,14 +1,15 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
-import requests
-import pickle
+import numpy as np
 import matplotlib.pyplot as plt
+import yfinance as yf
+import pickle
+import math
+
 from tensorflow.keras.models import load_model
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 from newsapi import NewsApiClient
 from textblob import TextBlob
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-import math
 
 
 # ============================================================
@@ -16,14 +17,20 @@ import math
 # ============================================================
 
 st.set_page_config(
-    page_title="AI Stock Prediction System",
+    page_title="AI Stock Price Prediction System",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("📈 AI Stock Price Prediction System")
-st.markdown(
-    "### LSTM Deep Learning + Real-Time Market Data + News Sentiment"
+
+# ============================================================
+# TITLE
+# ============================================================
+
+st.title("AI Stock Price Prediction System")
+
+st.subheader(
+    "LSTM Deep Learning + Real-Time Market Data + News Sentiment"
 )
 
 st.markdown("---")
@@ -33,40 +40,31 @@ st.markdown("---")
 # SIDEBAR
 # ============================================================
 
-st.sidebar.title("⚙️ Stock Controls")
+st.sidebar.header("⚙️ Stock Controls")
 
-stock_input = st.sidebar.text_input(
+stock = st.sidebar.text_input(
     "Enter Stock Symbol",
-    value="AAPL",
-    help="Examples: AAPL, TSLA, NVDA, MSFT, AMZN"
-)
+    value="AAPL"
+).strip().upper()
 
-stock = stock_input.strip().upper()
-
-refresh = st.sidebar.slider(
+refresh_time = st.sidebar.slider(
     "Auto Refresh (seconds)",
-    min_value=30,
+    min_value=60,
     max_value=300,
     value=120
 )
 
 st.sidebar.markdown("---")
 
-st.sidebar.info(
-    """
-    **Supported examples**
+st.sidebar.write("Examples:")
 
-    AAPL – Apple  
-    TSLA – Tesla  
-    NVDA – NVIDIA  
-    MSFT – Microsoft  
-    AMZN – Amazon
-    """
+st.sidebar.write(
+    "AAPL • TSLA • NVDA • MSFT • AMZN"
 )
 
 
 # ============================================================
-# LOAD LSTM MODEL AND SCALER
+# LOAD MODEL AND SCALER
 # ============================================================
 
 @st.cache_resource
@@ -91,12 +89,13 @@ def load_ai_assets():
 # ============================================================
 
 @st.cache_data(ttl=300)
-@st.cache_data(ttl=300)
 def fetch_stock_data(ticker):
 
     try:
+
         ticker = ticker.strip().upper()
 
+        # Use Yahoo Finance through yfinance
         data = yf.download(
             ticker,
             period="10y",
@@ -106,12 +105,30 @@ def fetch_stock_data(ticker):
             threads=False
         )
 
-        if data.empty:
+        # ----------------------------------------------------
+        # CHECK DATA
+        # ----------------------------------------------------
+
+        if data is None or data.empty:
             return pd.DataFrame()
 
-        # Handle MultiIndex columns returned by newer yfinance versions
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
+        # ----------------------------------------------------
+        # HANDLE MULTI-INDEX COLUMNS
+        # ----------------------------------------------------
+
+        if isinstance(
+            data.columns,
+            pd.MultiIndex
+        ):
+
+            data.columns = (
+                data.columns
+                .get_level_values(0)
+            )
+
+        # ----------------------------------------------------
+        # REQUIRED COLUMNS
+        # ----------------------------------------------------
 
         required_columns = [
             "Open",
@@ -121,34 +138,54 @@ def fetch_stock_data(ticker):
             "Volume"
         ]
 
-        missing_columns = [
-            col for col in required_columns
-            if col not in data.columns
+        # Check missing columns
+
+        missing = [
+            column
+            for column in required_columns
+            if column not in data.columns
         ]
 
-        if missing_columns:
+        if missing:
+
             st.error(
-                f"Missing columns from Yahoo Finance: "
-                f"{missing_columns}"
+                f"Missing Yahoo Finance columns: {missing}"
             )
+
             return pd.DataFrame()
 
-        data = data[required_columns].copy()
+        # ----------------------------------------------------
+        # KEEP REQUIRED DATA
+        # ----------------------------------------------------
 
-        # Convert values to numeric
+        data = data[
+            required_columns
+        ].copy()
+
+        # ----------------------------------------------------
+        # CONVERT NUMERIC DATA
+        # ----------------------------------------------------
+
         for column in required_columns:
+
             data[column] = pd.to_numeric(
                 data[column],
                 errors="coerce"
             )
 
-        # Remove missing prices
+        # ----------------------------------------------------
+        # REMOVE MISSING CLOSE PRICES
+        # ----------------------------------------------------
+
         data.dropna(
             subset=["Close"],
             inplace=True
         )
 
-        # Sort dates
+        # ----------------------------------------------------
+        # SORT BY DATE
+        # ----------------------------------------------------
+
         data.sort_index(
             ascending=True,
             inplace=True
@@ -156,189 +193,33 @@ def fetch_stock_data(ticker):
 
         return data
 
-    except Exception as e:
-
-        st.error(
-            f"Yahoo Finance error: {e}"
-        )
-
-        return pd.DataFrame()
-
-        # ----------------------------------------------------
-        # CHECK API RESPONSE
-        # ----------------------------------------------------
-
-        if result.get("status") == "error":
-
-            st.error(
-                "Twelve Data Error: "
-                + result.get(
-                    "message",
-                    "Unknown API error"
-                )
-            )
-
-            return pd.DataFrame()
-
-
-        if "values" not in result:
-
-            st.error(
-                f"No historical stock data "
-                f"was returned for {ticker}."
-            )
-
-            return pd.DataFrame()
-
-
-        # ----------------------------------------------------
-        # CREATE DATAFRAME
-        # ----------------------------------------------------
-
-        df = pd.DataFrame(
-            result["values"]
-        )
-
-
-        # ----------------------------------------------------
-        # CONVERT DATE COLUMN
-        # ----------------------------------------------------
-
-        df["datetime"] = pd.to_datetime(
-            df["datetime"],
-            errors="coerce"
-        )
-
-
-        # Remove invalid dates
-
-        df = df.dropna(
-            subset=["datetime"]
-        )
-
-
-        # ----------------------------------------------------
-        # SET DATE AS INDEX
-        # ----------------------------------------------------
-
-        df.set_index(
-            "datetime",
-            inplace=True
-        )
-
-
-        # ----------------------------------------------------
-        # RENAME COLUMNS
-        # ----------------------------------------------------
-
-        df.rename(
-            columns={
-                "open": "Open",
-                "high": "High",
-                "low": "Low",
-                "close": "Close",
-                "volume": "Volume"
-            },
-            inplace=True
-        )
-
-
-        # ----------------------------------------------------
-        # CONVERT VALUES TO NUMERIC
-        # ----------------------------------------------------
-
-        numeric_columns = [
-            "Open",
-            "High",
-            "Low",
-            "Close",
-            "Volume"
-        ]
-
-        for column in numeric_columns:
-
-            if column in df.columns:
-
-                df[column] = pd.to_numeric(
-                    df[column],
-                    errors="coerce"
-                )
-
-
-        # ----------------------------------------------------
-        # REMOVE INVALID ROWS
-        # ----------------------------------------------------
-
-        df.dropna(
-            subset=["Close"],
-            inplace=True
-        )
-
-
-        # ----------------------------------------------------
-        # SORT CHRONOLOGICALLY
-        # ----------------------------------------------------
-
-        df.sort_index(
-            ascending=True,
-            inplace=True
-        )
-
-
-        return df
-
-
-    except KeyError:
-
-        st.error(
-            """
-            ❌ Twelve Data API key not found.
-
-            Add TWELVE_DATA_API_KEY to your
-            Streamlit Secrets.
-            """
-        )
-
-        return pd.DataFrame()
-
-
-    except requests.exceptions.RequestException as error:
-
-        st.error(
-            f"❌ Stock data connection error: {error}"
-        )
-
-        return pd.DataFrame()
-
 
     except Exception as error:
 
         st.error(
-            f"❌ Unexpected data error: {error}"
+            f"Yahoo Finance error: {error}"
         )
 
         return pd.DataFrame()
 
 
 # ============================================================
-# RSI FUNCTION
+# RSI
 # ============================================================
 
 def calculate_rsi(
-    series,
+    prices,
     period=14
 ):
 
-    delta = series.diff()
+    difference = prices.diff()
 
-    gain = delta.where(
-        delta > 0,
-        0
+    gain = difference.clip(
+        lower=0
     )
 
-    loss = -delta.where(
-        delta < 0,
-        0
+    loss = -difference.clip(
+        upper=0
     )
 
     average_gain = gain.rolling(
@@ -351,26 +232,70 @@ def calculate_rsi(
 
     rs = (
         average_gain /
-        average_loss
+        average_loss.replace(
+            0,
+            np.nan
+        )
     )
 
     rsi = (
         100 -
-        (100 / (1 + rs))
+        (
+            100 /
+            (1 + rs)
+        )
     )
 
     return rsi
 
 
 # ============================================================
+# NEWS SENTIMENT
+# ============================================================
+
+def analyze_sentiment(text):
+
+    if not text:
+
+        return (
+            "Neutral",
+            0.0
+        )
+
+    analysis = TextBlob(
+        str(text)
+    )
+
+    polarity = (
+        analysis.sentiment.polarity
+    )
+
+    if polarity > 0.05:
+
+        sentiment = "Positive 📈"
+
+    elif polarity < -0.05:
+
+        sentiment = "Negative 📉"
+
+    else:
+
+        sentiment = "Neutral ➖"
+
+    return (
+        sentiment,
+        polarity
+    )
+
+
+# ============================================================
 # MAIN APPLICATION
 # ============================================================
 
-@st.fragment(run_every=refresh)
-def run_app():
+def main():
 
     # ========================================================
-    # LOAD MODEL
+    # LOAD AI MODEL
     # ========================================================
 
     try:
@@ -380,7 +305,7 @@ def run_app():
     except Exception as error:
 
         st.error(
-            "❌ Unable to load the LSTM model or scaler."
+            "Unable to load the AI model."
         )
 
         st.code(
@@ -389,11 +314,11 @@ def run_app():
 
         st.info(
             """
-            Make sure these files are in the same
-            folder as app.py:
+            Make sure these files are in your
+            GitHub repository:
 
-            • lstm_model_cleaned.h5
-            • scaler.pkl
+            lstm_model_cleaned.h5
+            scaler.pkl
             """
         )
 
@@ -404,21 +329,26 @@ def run_app():
     # FETCH STOCK DATA
     # ========================================================
 
-    data = fetch_stock_data(
-        stock
-    )
+    with st.spinner(
+        f"Loading {stock} market data..."
+    ):
+
+        data = fetch_stock_data(
+            stock
+        )
 
 
     # ========================================================
-    # CHECK DATA
+    # DATA VALIDATION
     # ========================================================
 
     if data.empty:
 
         st.error(
             f"""
-            ⚠️ Could not retrieve stock data
-            for **{stock}**.
+            Could not retrieve stock data for **{stock}**.
+
+            Please check that the stock symbol is correct.
             """
         )
 
@@ -429,13 +359,12 @@ def run_app():
 
         st.error(
             f"""
-            ⚠️ Insufficient historical data.
+            Not enough historical data for {stock}.
 
-            Stock: {stock}
+            Data received: {len(data)} rows.
 
-            Records received: {len(data)}
-
-            Minimum required: 65
+            At least 65 rows are required for
+            the 60-day LSTM sequence.
             """
         )
 
@@ -443,10 +372,10 @@ def run_app():
 
 
     # ========================================================
-    # LATEST STOCK INFORMATION
+    # CURRENT PRICE
     # ========================================================
 
-    latest_price = float(
+    current_price = float(
         data["Close"].iloc[-1]
     )
 
@@ -454,62 +383,57 @@ def run_app():
         data["Close"].iloc[-2]
     )
 
-    daily_change = (
-        latest_price -
+    price_change = (
+        current_price -
         previous_price
     )
 
-    daily_change_percent = (
-        daily_change /
+    percentage_change = (
+        price_change /
         previous_price
     ) * 100
 
 
     # ========================================================
-    # STOCK SUMMARY
+    # MARKET SUMMARY
     # ========================================================
 
-    st.subheader(
+    st.header(
         f"📊 {stock} Market Overview"
     )
 
-
     col1, col2, col3, col4 = st.columns(4)
-
 
     with col1:
 
         st.metric(
             "Current Price",
-            f"${latest_price:.2f}"
+            f"${current_price:.2f}"
         )
-
 
     with col2:
 
         st.metric(
             "Daily Change",
-            f"${daily_change:.2f}"
+            f"${price_change:.2f}"
         )
-
 
     with col3:
 
         st.metric(
-            "Daily Change %",
-            f"{daily_change_percent:.2f}%"
+            "Change %",
+            f"{percentage_change:.2f}%"
         )
-
 
     with col4:
 
-        latest_volume = data[
-            "Volume"
-        ].iloc[-1]
+        latest_volume = int(
+            data["Volume"].iloc[-1]
+        )
 
         st.metric(
             "Volume",
-            f"{latest_volume:,.0f}"
+            f"{latest_volume:,}"
         )
 
 
@@ -517,7 +441,7 @@ def run_app():
     # RECENT DATA
     # ========================================================
 
-    st.subheader(
+    st.header(
         "📋 Recent Stock Data"
     )
 
@@ -528,54 +452,46 @@ def run_app():
 
 
     # ========================================================
-    # CLOSING PRICE CHART
+    # CLOSING PRICE
     # ========================================================
 
-    st.subheader(
-        "📈 Stock Closing Price"
+    st.header(
+        "📈 Historical Closing Price"
     )
 
-
-    fig = plt.figure(
+    fig, ax = plt.subplots(
         figsize=(12, 5)
     )
 
-
-    plt.plot(
+    ax.plot(
         data.index,
         data["Close"],
         label="Closing Price"
     )
 
-
-    plt.title(
-        f"{stock} Historical Closing Price"
+    ax.set_title(
+        f"{stock} Closing Price"
     )
 
-    plt.xlabel(
+    ax.set_xlabel(
         "Date"
     )
 
-    plt.ylabel(
+    ax.set_ylabel(
         "Price ($)"
     )
 
-    plt.legend()
+    ax.legend()
 
-    plt.grid(
-        True,
+    ax.grid(
         alpha=0.3
     )
 
     plt.tight_layout()
 
-    st.pyplot(
-        fig
-    )
+    st.pyplot(fig)
 
-    plt.close(
-        fig
-    )
+    plt.close(fig)
 
 
     # ========================================================
@@ -595,65 +511,55 @@ def run_app():
     )
 
 
-    st.subheader(
-        "📊 Moving Averages"
+    st.header(
+        "📊 Moving Average Analysis"
     )
 
-
-    fig_ma = plt.figure(
+    fig, ax = plt.subplots(
         figsize=(12, 5)
     )
 
-
-    plt.plot(
+    ax.plot(
         data.index,
         data["Close"],
-        label="Closing Price"
+        label="Close"
     )
 
-
-    plt.plot(
+    ax.plot(
         data.index,
         data["MA50"],
-        label="50-Day MA"
+        label="MA50"
     )
 
-
-    plt.plot(
+    ax.plot(
         data.index,
         data["MA200"],
-        label="200-Day MA"
+        label="MA200"
     )
 
-
-    plt.title(
-        f"{stock} Moving Average Analysis"
+    ax.set_title(
+        f"{stock} Moving Averages"
     )
 
-    plt.xlabel(
+    ax.set_xlabel(
         "Date"
     )
 
-    plt.ylabel(
+    ax.set_ylabel(
         "Price ($)"
     )
 
-    plt.legend()
+    ax.legend()
 
-    plt.grid(
-        True,
+    ax.grid(
         alpha=0.3
     )
 
     plt.tight_layout()
 
-    st.pyplot(
-        fig_ma
-    )
+    st.pyplot(fig)
 
-    plt.close(
-        fig_ma
-    )
+    plt.close(fig)
 
 
     # ========================================================
@@ -664,66 +570,55 @@ def run_app():
         data["Close"]
     )
 
-
-    st.subheader(
-        "📉 Relative Strength Index (RSI)"
+    st.header(
+        "📉 Relative Strength Index"
     )
 
-
-    fig_rsi = plt.figure(
+    fig, ax = plt.subplots(
         figsize=(12, 4)
     )
 
-
-    plt.plot(
+    ax.plot(
         data.index,
         data["RSI"],
         label="RSI"
     )
 
-
-    plt.axhline(
+    ax.axhline(
         70,
         linestyle="--",
-        label="Overbought (70)"
+        label="Overbought"
     )
 
-
-    plt.axhline(
+    ax.axhline(
         30,
         linestyle="--",
-        label="Oversold (30)"
+        label="Oversold"
     )
 
-
-    plt.title(
+    ax.set_title(
         f"{stock} RSI"
     )
 
-    plt.xlabel(
+    ax.set_xlabel(
         "Date"
     )
 
-    plt.ylabel(
+    ax.set_ylabel(
         "RSI"
     )
 
-    plt.legend()
+    ax.legend()
 
-    plt.grid(
-        True,
+    ax.grid(
         alpha=0.3
     )
 
     plt.tight_layout()
 
-    st.pyplot(
-        fig_rsi
-    )
+    st.pyplot(fig)
 
-    plt.close(
-        fig_rsi
-    )
+    plt.close(fig)
 
 
     # ========================================================
@@ -737,56 +632,47 @@ def run_app():
         .std()
     )
 
-
-    st.subheader(
+    st.header(
         "📊 Market Volatility"
     )
 
-
-    fig_vol = plt.figure(
+    fig, ax = plt.subplots(
         figsize=(12, 4)
     )
 
-
-    plt.plot(
+    ax.plot(
         data.index,
         data["Volatility"],
         label="20-Day Volatility"
     )
 
-
-    plt.title(
+    ax.set_title(
         f"{stock} Market Volatility"
     )
 
-    plt.xlabel(
+    ax.set_xlabel(
         "Date"
     )
 
-    plt.ylabel(
+    ax.set_ylabel(
         "Volatility"
     )
 
-    plt.legend()
+    ax.legend()
 
-    plt.grid(
-        True,
+    ax.grid(
         alpha=0.3
     )
 
     plt.tight_layout()
 
-    st.pyplot(
-        fig_vol
-    )
+    st.pyplot(fig)
 
-    plt.close(
-        fig_vol
-    )
+    plt.close(fig)
 
 
     # ========================================================
-    # LSTM DATA PREPARATION
+    # PREPARE DATA FOR LSTM
     # ========================================================
 
     close_prices = (
@@ -794,7 +680,6 @@ def run_app():
         .values
         .reshape(-1, 1)
     )
-
 
     try:
 
@@ -805,7 +690,7 @@ def run_app():
     except Exception as error:
 
         st.error(
-            "❌ Error applying the trained scaler."
+            "Error applying the saved scaler."
         )
 
         st.code(
@@ -817,9 +702,7 @@ def run_app():
 
     sequence_length = 60
 
-
     X = []
-
 
     for i in range(
         sequence_length,
@@ -833,45 +716,40 @@ def run_app():
             ]
         )
 
+    X = np.array(X)
 
-    X = np.array(
-        X
-    )
-
-
-    X = np.reshape(
-        X,
-        (
-            X.shape[0],
-            X.shape[1],
-            1
-        )
+    X = X.reshape(
+        X.shape[0],
+        X.shape[1],
+        1
     )
 
 
     # ========================================================
-    # LSTM PREDICTION
+    # LSTM PREDICTIONS
     # ========================================================
 
     try:
 
-        predicted_scaled = model.predict(
+        predictions_scaled = model.predict(
             X,
             verbose=0
         )
 
-
-        predicted_prices = (
+        predictions = (
             scaler.inverse_transform(
-                predicted_scaled
+                predictions_scaled
             )
         )
 
+        predictions = (
+            predictions.flatten()
+        )
 
     except Exception as error:
 
         st.error(
-            "❌ Error generating LSTM predictions."
+            "Error generating LSTM predictions."
         )
 
         st.code(
@@ -882,184 +760,59 @@ def run_app():
 
 
     # ========================================================
-    # ACTUAL VS PREDICTED DATA
+    # ACTUAL VS PREDICTED
     # ========================================================
-
-    train = data.iloc[
-        :sequence_length
-    ]
-
 
     valid = data.iloc[
         sequence_length:
     ].copy()
 
+    valid["Predicted"] = predictions
 
-    valid["Predictions"] = (
-        predicted_prices.flatten()
+
+    st.header(
+        "🤖 Actual vs Predicted Prices"
     )
 
-
-    # ========================================================
-    # ACTUAL VS PREDICTED CHART
-    # ========================================================
-
-    st.subheader(
-        "🤖 Actual vs LSTM Predicted Prices"
-    )
-
-
-    fig_prediction = plt.figure(
+    fig, ax = plt.subplots(
         figsize=(12, 5)
     )
 
-
-    plt.plot(
-        train.index,
-        train["Close"],
-        label="Training Data"
-    )
-
-
-    plt.plot(
+    ax.plot(
         valid.index,
         valid["Close"],
-        label="Actual Price"
+        label="Actual"
     )
 
-
-    plt.plot(
+    ax.plot(
         valid.index,
-        valid["Predictions"],
-        label="Predicted Price"
+        valid["Predicted"],
+        label="LSTM Predicted"
     )
 
-
-    plt.title(
-        f"{stock} Actual vs Predicted Prices"
+    ax.set_title(
+        f"{stock} Actual vs LSTM Predicted Prices"
     )
 
-    plt.xlabel(
+    ax.set_xlabel(
         "Date"
     )
 
-    plt.ylabel(
+    ax.set_ylabel(
         "Price ($)"
     )
 
-    plt.legend()
+    ax.legend()
 
-    plt.grid(
-        True,
+    ax.grid(
         alpha=0.3
     )
 
     plt.tight_layout()
 
-    st.pyplot(
-        fig_prediction
-    )
+    st.pyplot(fig)
 
-    plt.close(
-        fig_prediction
-    )
-
-
-    # ========================================================
-    # NEXT DAY PREDICTION
-    # ========================================================
-
-    last_60_days = scaled_data[
-        -sequence_length:
-    ]
-
-
-    last_60_days = np.reshape(
-        last_60_days,
-        (1, sequence_length, 1)
-    )
-
-
-    try:
-
-        next_prediction_scaled = (
-            model.predict(
-                last_60_days,
-                verbose=0
-            )
-        )
-
-
-        next_prediction = (
-            scaler.inverse_transform(
-                next_prediction_scaled
-            )
-        )
-
-
-        next_price = float(
-            next_prediction[0][0]
-        )
-
-
-    except Exception as error:
-
-        st.error(
-            "❌ Could not generate next-day prediction."
-        )
-
-        st.code(
-            str(error)
-        )
-
-        return
-
-
-    # ========================================================
-    # PREDICTED PRICE
-    # ========================================================
-
-    st.subheader(
-        "🔮 Next-Day Stock Price Prediction"
-    )
-
-
-    expected_change = (
-        next_price -
-        latest_price
-    )
-
-
-    expected_change_percent = (
-        expected_change /
-        latest_price
-    ) * 100
-
-
-    col1, col2, col3 = st.columns(3)
-
-
-    with col1:
-
-        st.success(
-            f"${next_price:.2f}"
-        )
-
-
-    with col2:
-
-        st.metric(
-            "Expected Change",
-            f"${expected_change:.2f}"
-        )
-
-
-    with col3:
-
-        st.metric(
-            "Expected Change %",
-            f"{expected_change_percent:.2f}%"
-        )
+    plt.close(fig)
 
 
     # ========================================================
@@ -1069,24 +822,21 @@ def run_app():
     rmse = math.sqrt(
         mean_squared_error(
             valid["Close"],
-            valid["Predictions"]
+            valid["Predicted"]
         )
     )
 
-
     mae = mean_absolute_error(
         valid["Close"],
-        valid["Predictions"]
+        valid["Predicted"]
     )
 
 
-    st.subheader(
+    st.header(
         "📊 Model Performance"
     )
 
-
     col1, col2 = st.columns(2)
-
 
     with col1:
 
@@ -1094,7 +844,6 @@ def run_app():
             "RMSE",
             f"{rmse:.4f}"
         )
-
 
     with col2:
 
@@ -1105,70 +854,138 @@ def run_app():
 
 
     # ========================================================
-    # DOWNLOAD PREDICTIONS
+    # NEXT DAY PREDICTION
     # ========================================================
 
-    download_data = valid[
+    last_60 = scaled_data[
+        -sequence_length:
+    ]
+
+    last_60 = last_60.reshape(
+        1,
+        sequence_length,
+        1
+    )
+
+
+    try:
+
+        next_scaled = model.predict(
+            last_60,
+            verbose=0
+        )
+
+        next_price = (
+            scaler.inverse_transform(
+                next_scaled
+            )
+        )
+
+        next_price = float(
+            next_price[0][0]
+        )
+
+    except Exception as error:
+
+        st.error(
+            "Unable to generate next-day prediction."
+        )
+
+        st.code(
+            str(error)
+        )
+
+        return
+
+
+    predicted_change = (
+        next_price -
+        current_price
+    )
+
+    predicted_change_percent = (
+        predicted_change /
+        current_price
+    ) * 100
+
+
+    st.header(
+        "🔮 Next-Day Price Prediction"
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.success(
+            f"${next_price:.2f}"
+        )
+
+    with col2:
+
+        st.metric(
+            "Expected Change",
+            f"${predicted_change:.2f}"
+        )
+
+    with col3:
+
+        st.metric(
+            "Expected Change %",
+            f"{predicted_change_percent:.2f}%"
+        )
+
+
+    # ========================================================
+    # DOWNLOAD RESULTS
+    # ========================================================
+
+    results = valid[
         [
             "Close",
-            "Predictions"
+            "Predicted"
         ]
     ].copy()
 
-
-    download_data["Difference"] = (
-        download_data["Predictions"] -
-        download_data["Close"]
+    results["Difference"] = (
+        results["Predicted"] -
+        results["Close"]
     )
 
-
-    csv = download_data.to_csv(
+    csv = results.to_csv(
         index=True
-    ).encode(
-        "utf-8"
-    )
+    ).encode("utf-8")
 
 
     st.download_button(
-        label="📥 Download Prediction Results",
+        "📥 Download Prediction Results",
         data=csv,
-        file_name=f"{stock}_prediction_results.csv",
+        file_name=f"{stock}_predictions.csv",
         mime="text/csv"
     )
 
 
     # ========================================================
-    # NEWS SENTIMENT ANALYSIS
+    # NEWS & SENTIMENT
     # ========================================================
 
-    st.subheader(
-        "🌍 Global News Affecting Markets"
+    st.header(
+        "📰 Real-Time News & Sentiment Analysis"
     )
 
 
     # --------------------------------------------------------
-    # NEWS API KEY
+    # READ NEWS API KEY
     # --------------------------------------------------------
 
-    try:
-
-        news_api_key = st.secrets[
-            "NEWS_API_KEY"
-        ]
-
-    except KeyError:
-
-        news_api_key = None
-
-
-    if not news_api_key:
+    if "NEWS_API_KEY" not in st.secrets:
 
         st.warning(
             """
-            ⚠️ News API key is not configured.
+            NEWS_API_KEY is not configured.
 
-            Add NEWS_API_KEY to Streamlit Secrets
-            to activate real-time news sentiment analysis.
+            Add your NewsAPI key to Streamlit Secrets
+            to enable news sentiment analysis.
             """
         )
 
@@ -1176,84 +993,34 @@ def run_app():
 
         try:
 
+            news_api_key = st.secrets[
+                "NEWS_API_KEY"
+            ]
+
             newsapi = NewsApiClient(
                 api_key=news_api_key
             )
 
 
-            articles = newsapi.get_everything(
+            articles = (
+                newsapi.get_everything(
 
-                q=(
-                    f"{stock} OR "
-                    "stock market OR "
-                    "economy OR "
-                    "inflation OR "
-                    "technology OR "
-                    "global markets"
-                ),
+                    q=(
+                        f"{stock} OR "
+                        f"{stock} stock OR "
+                        "financial markets OR "
+                        "economy OR "
+                        "inflation"
+                    ),
 
-                language="en",
+                    language="en",
 
-                sort_by="publishedAt",
+                    sort_by="publishedAt",
 
-                page_size=8
+                    page_size=8
+                )
             )
 
-
-            # ------------------------------------------------
-            # SENTIMENT FUNCTION
-            # ------------------------------------------------
-
-            def analyze_sentiment(text):
-
-                if not text:
-
-                    return (
-                        "Neutral",
-                        0.0
-                    )
-
-
-                analysis = TextBlob(
-                    text
-                )
-
-
-                polarity = (
-                    analysis
-                    .sentiment
-                    .polarity
-                )
-
-
-                if polarity > 0.05:
-
-                    sentiment = (
-                        "Positive 📈"
-                    )
-
-                elif polarity < -0.05:
-
-                    sentiment = (
-                        "Negative 📉"
-                    )
-
-                else:
-
-                    sentiment = (
-                        "Neutral ➖"
-                    )
-
-
-                return (
-                    sentiment,
-                    polarity
-                )
-
-
-            # ------------------------------------------------
-            # DISPLAY ARTICLES
-            # ------------------------------------------------
 
             article_list = articles.get(
                 "articles",
@@ -1264,37 +1031,37 @@ def run_app():
             if not article_list:
 
                 st.info(
-                    "No recent news articles were found."
+                    "No recent news articles found."
                 )
 
-
             else:
+
+                positive = 0
+                negative = 0
+                neutral = 0
+
 
                 for article in article_list:
 
                     title = article.get(
                         "title",
-                        "No title available"
+                        "No title"
                     )
-
 
                     description = article.get(
-                        "description"
+                        "description",
+                        ""
                     )
-
 
                     url = article.get(
-                        "url"
+                        "url",
+                        ""
                     )
 
-
-                    source_info = article.get(
+                    source = article.get(
                         "source",
                         {}
-                    )
-
-
-                    source = source_info.get(
+                    ).get(
                         "name",
                         "Unknown"
                     )
@@ -1305,6 +1072,23 @@ def run_app():
                             title
                         )
                     )
+
+
+                    if sentiment.startswith(
+                        "Positive"
+                    ):
+
+                        positive += 1
+
+                    elif sentiment.startswith(
+                        "Negative"
+                    ):
+
+                        negative += 1
+
+                    else:
+
+                        neutral += 1
 
 
                     st.markdown(
@@ -1323,14 +1107,12 @@ def run_app():
                         f"**Source:** {source}"
                     )
 
-
                     st.write(
                         f"**Sentiment:** {sentiment}"
                     )
 
-
                     st.write(
-                        f"**Sentiment Score:** "
+                        f"**Polarity Score:** "
                         f"{score:.2f}"
                     )
 
@@ -1342,18 +1124,65 @@ def run_app():
                         )
 
 
-                    st.markdown("---")
+                    st.markdown(
+                        "---"
+                    )
+
+
+                # ------------------------------------------------
+                # SENTIMENT SUMMARY
+                # ------------------------------------------------
+
+                st.subheader(
+                    "📊 News Sentiment Summary"
+                )
+
+                c1, c2, c3 = st.columns(3)
+
+                with c1:
+
+                    st.metric(
+                        "Positive",
+                        positive
+                    )
+
+                with c2:
+
+                    st.metric(
+                        "Negative",
+                        negative
+                    )
+
+                with c3:
+
+                    st.metric(
+                        "Neutral",
+                        neutral
+                    )
 
 
         except Exception as error:
 
             st.error(
-                f"❌ Could not load news articles: {error}"
+                f"News API error: {error}"
             )
 
 
+    # ========================================================
+    # FOOTER
+    # ========================================================
+
+    st.markdown("---")
+
+    st.caption(
+        "AI Stock Price Prediction System | "
+        "LSTM Deep Learning + Real-Time Market Data + "
+        "News Sentiment"
+    )
+
+
 # ============================================================
-# RUN APPLICATION
+# RUN APP
 # ============================================================
 
-run_app()
+main()
